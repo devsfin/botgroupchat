@@ -7,7 +7,7 @@ CONTACTS = {
     'petya': 7415558897,
 }
 GROUP_ID = -1003172613297
-
+'/'
 user_reports = {user_id: None for user_id in CONTACTS.values()}
 
 async def forward_to_contacts(update: Update, context: ContextTypes.DEFAULT_TYPE):
