@@ -3,8 +3,7 @@ from telegram.ext import ApplicationBuilder, MessageHandler, filters, ContextTyp
 
 ADMIN_ID = 488787017
 CONTACTS = {
-    'vasya': 7179688966,
-    'petya': 7415558897,
+    'Luda': 7179688966
 }
 GROUP_ID = -1003172613297
 '/'
