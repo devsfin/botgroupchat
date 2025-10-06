@@ -1,6 +1,11 @@
+from flask import Flask, request
 from telegram import Update, BotCommand
-from telegram.ext import ApplicationBuilder, MessageHandler, filters, ContextTypes, CommandHandler
+from telegram.ext import Application, CommandHandler, MessageHandler, ContextTypes, filters
+import asyncio
+import os
 
+# --- Константы ---
+TOKEN = os.getenv("BOT_TOKEN")  # токен через переменные среды (безопаснее)
 ADMIN_ID = 488787017
 CONTACTS = {
     'luda': 1497126590,
@@ -8,9 +13,15 @@ CONTACTS = {
     'daruna': 7179688966,
 }
 GROUP_ID = -1003172613297
-'/'
 user_reports = {user_id: None for user_id in CONTACTS.values()}
 
+# --- Flask ---
+app = Flask(__name__)
+
+# --- Telegram bot ---
+application = Application.builder().token(TOKEN).build()
+
+# --- Хендлеры ---
 async def forward_to_contacts(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id != ADMIN_ID:
         return
@@ -36,7 +47,6 @@ async def forward_to_contacts(update: Update, context: ContextTypes.DEFAULT_TYPE
         else:
             await update.message.reply_text("Неизвестный контакт.")
     else:
-        # Отправляем обычное сообщение всем контактам
         for contact_id in CONTACTS.values():
             await context.bot.send_message(contact_id, text)
 
@@ -44,10 +54,7 @@ async def user_message_handler(update: Update, context: ContextTypes.DEFAULT_TYP
     user_id = update.effective_user.id
     if user_id in CONTACTS.values():
         text = update.message.text.strip()
-        # Пересылаем любое сообщение в группу
         await context.bot.send_message(GROUP_ID, f"От @{update.effective_user.username}:\n{text}")
-
-        # Если сообщение - трехзначное число, сохраняем для отчета
         if text.isdigit() and len(text) == 3:
             user_reports[user_id] = text
 
@@ -68,19 +75,25 @@ async def check_report(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     await update.message.reply_text(msg)
 
-app = ApplicationBuilder().token("8262718662:AAEMKYDvIVQ9zCmcTBM8U8y1F5u_TPcahpM").build()
+# --- Регистрация хендлеров ---
+application.add_handler(MessageHandler(filters.TEXT & filters.User(ADMIN_ID), forward_to_contacts))
+application.add_handler(MessageHandler(filters.TEXT, user_message_handler))
+application.add_handler(CommandHandler("check", check_report))
 
-async def set_bot_commands(application):
-    commands = [BotCommand(name, f"Написать {name}") for name in CONTACTS.keys()]
-    commands.append(BotCommand("contacts", "Показать список контактов"))
-    commands.append(BotCommand("check", "Показать отчет по числам"))
-    await application.bot.set_my_commands(commands)
+# --- Flask route для Telegram webhook ---
+@app.route('/' + TOKEN, methods=['POST'])
+def webhook():
+    update = Update.de_json(request.get_json(force=True), application.bot)
+    asyncio.run(application.process_update(update))
+    return "ok"
 
-app.post_init = set_bot_commands
+@app.route('/')
+def index():
+    return "Bot is running!", 200
 
-app.add_handler(MessageHandler(filters.TEXT & filters.User(ADMIN_ID), forward_to_contacts))
-app.add_handler(MessageHandler(filters.TEXT, user_message_handler))
-
-app.add_handler(CommandHandler("check", check_report))
-
-app.run_polling()
+# --- Запуск ---
+if __name__ == '__main__':
+    # Установим webhook на Render-домен
+    webhook_url = f"https://{os.getenv('RENDER_EXTERNAL_HOSTNAME')}/{TOKEN}"
+    asyncio.run(application.bot.set_webhook(webhook_url))
+    app.run(host='0.0.0.0', port=10000)
