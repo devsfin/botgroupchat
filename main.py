@@ -1,41 +1,28 @@
-from flask import Flask, request
-from telegram import Update
-from telegram.ext import Application, CommandHandler, MessageHandler, ContextTypes, filters
-import asyncio
 import os
-import logging
+from telegram import Update, BotCommand, BotCommandScopeAllPrivateChats, BotCommandScopeChat
+from telegram.ext import ApplicationBuilder, MessageHandler, filters, ContextTypes, CommandHandler
 
-# --- Логирование ---
-logging.basicConfig(
-    format='%(asctime)s - %(levelname)s - %(message)s',
-    level=logging.INFO
-)
+TOKEN = os.getenv('BOTTOKEN')
+if not TOKEN:
+    raise ValueError("BOTTOKEN environment variable is not set.")
 
-# --- Константы ---
-TOKEN = os.getenv("BOT_TOKEN")  # Токен через переменные среды
 ADMIN_ID = 488787017
 CONTACTS = {
-    'luda': 1497126590,
-    'ketr': 1858219863,
+    'ketr': 7415558897,
     'daruna': 7179688966,
 }
 GROUP_ID = -1003172613297
 user_reports = {user_id: None for user_id in CONTACTS.values()}
 
-# --- Flask ---
-app = Flask(__name__)
 
-# --- Telegram bot ---
-application = Application.builder().token(TOKEN).build()
-
-# --- Хендлеры ---
+# === Только для админа ===
 async def forward_to_contacts(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    logging.info(f"forward_to_contacts received message from {update.effective_user.id}: {update.message.text}")
     if update.effective_user.id != ADMIN_ID:
-        logging.info("User is not admin, ignoring message")
+        await update.message.reply_text("⛔ Эта команда только для администратора.")
         return
 
     text = update.message.text.strip()
+
     if text == '/contacts':
         contacts_list = "\n".join([f"/{name}" for name in CONTACTS.keys()])
         await update.message.reply_text(f"Список контактов:\n{contacts_list}")
@@ -51,7 +38,6 @@ async def forward_to_contacts(update: Update, context: ContextTypes.DEFAULT_TYPE
         if contact_id:
             if msg:
                 await context.bot.send_message(contact_id, msg[0])
-                logging.info(f"Sent message to contact {cmd} ({contact_id}): {msg[0]}")
             else:
                 await update.message.reply_text(f"Введите сообщение после команды /{cmd}")
         else:
@@ -59,25 +45,67 @@ async def forward_to_contacts(update: Update, context: ContextTypes.DEFAULT_TYPE
     else:
         for contact_id in CONTACTS.values():
             await context.bot.send_message(contact_id, text)
-            logging.info(f"Broadcasted message to contact ID {contact_id}: {text}")
 
-async def user_message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+
+# === Команда /balu для всех пользователей ===
+async def balu_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
-    text = update.message.text.strip()
-    logging.info(f"user_message_handler received message from {user_id}: {text}")
-    if user_id in CONTACTS.values():
-        await context.bot.send_message(GROUP_ID, f"От @{update.effective_user.username}:\n{text}")
-        if text.isdigit() and len(text) == 3:
-            user_reports[user_id] = text
-            logging.info(f"Updated report for user {user_id} with value {text}")
 
+    if len(context.args) != 1:
+        await update.message.reply_text("Пожалуйста, отправьте одно число из 2 или 3 цифр, например: /balu 45 или /balu 123")
+        return
+
+    value = context.args[0]
+
+    if not value.isdigit() or not (2 <= len(value) <= 3):
+        await update.message.reply_text("❌ Неверный формат. Введите одно число из 2 или 3 цифр, например: /balu 45 или /balu 123")
+        return
+
+    number = int(value)
+    user_reports[user_id] = number
+
+    await update.message.reply_text(f"✅ Принято число: {number}")
+
+    report_msg = f"От @{update.effective_user.username or update.effective_user.full_name} получено число: {number}"
+    await context.bot.send_message(GROUP_ID, report_msg)
+
+
+from datetime import datetime, time
+
+# === Проверка отчетов (только для админа) ===
 async def check_report(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    missing = [name for name, uid in CONTACTS.items() if user_reports.get(uid) is None]
-    received = [(name, user_reports.get(uid)) for name, uid in CONTACTS.items() if user_reports.get(uid) is not None]
+    if update.effective_user.id != ADMIN_ID:
+        await update.message.reply_text("⛔ Эта команда только для администратора.")
+        return
+
+    now = datetime.now().time()
+    start_time = time(9, 15)   # 09:15 утра
+    end_time = time(3, 0)      # 03:00 ночи
+
+    def is_in_time_window(report_time):
+        """Проверка: report_time учитываем только в заданное время"""
+        if start_time <= report_time or report_time <= end_time:
+            return True
+        return False
+
+    # Фильтруем отчёты по времени
+    missing = []
+    received = []
+
+    for name, uid in CONTACTS.items():
+        report = user_reports.get(uid)
+        if report is not None:
+            report_time = report['time']  # предполагаем, что в user_reports хранится {'nums': [...], 'time': datetime}
+            if is_in_time_window(report_time.time()):
+                received.append((name, report['nums']))
+            else:
+                missing.append(name)  # если прислано вне времени — считаем как не получено
+        else:
+            missing.append(name)
 
     msg = "Отчет по присланным числам:\n"
     if received:
-        msg += "\nПолучено от:\n" + "\n".join([f"{name}: {num}" for name, num in received])
+        msg += "\nПолучено от:\n" + "\n".join([f"{name}: {nums}" for name, nums in received])
     else:
         msg += "\nДанных о полученных числах нет."
 
@@ -87,32 +115,72 @@ async def check_report(update: Update, context: ContextTypes.DEFAULT_TYPE):
         msg += "\n\nВсе прислали числа."
 
     await update.message.reply_text(msg)
-    logging.info("Sent report summary")
 
-# --- Регистрация хендлеров ---
-application.add_handler(MessageHandler(filters.TEXT & filters.User(ADMIN_ID), forward_to_contacts))
-application.add_handler(MessageHandler(filters.TEXT, user_message_handler))
-application.add_handler(CommandHandler("check", check_report))
 
-# --- Flask route для Telegram webhook ---
-@app.route('/' + TOKEN, methods=['POST'])
-def webhook():
-    logging.info("Received webhook update")
+
+# === Любое сообщение от пользователя → в группу ===
+async def forward_user_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user = update.effective_user
+    if user.id == ADMIN_ID:
+        return
+
+    caption = update.message.caption or update.message.text or ""
+    header = f"💬 Сообщение от @{user.username or user.full_name}:\n"
+
     try:
-        update = Update.de_json(request.get_json(force=True), application.bot)
-        asyncio.run(application.process_update(update))
-        logging.info("Update processed successfully")
+        if update.message.photo:
+            await context.bot.send_photo(GROUP_ID, photo=update.message.photo[-1].file_id, caption=header + caption)
+        elif update.message.document:
+            await context.bot.send_document(GROUP_ID, document=update.message.document.file_id, caption=header + caption)
+        elif update.message.video:
+            await context.bot.send_video(GROUP_ID, video=update.message.video.file_id, caption=header + caption)
+        elif update.message.voice:
+            await context.bot.send_voice(GROUP_ID, voice=update.message.voice.file_id, caption=header + caption)
+        elif update.message.audio:
+            await context.bot.send_audio(GROUP_ID, audio=update.message.audio.file_id, caption=header + caption)
+        elif update.message.sticker:
+            await context.bot.send_sticker(GROUP_ID, sticker=update.message.sticker.file_id)
+            await context.bot.send_message(GROUP_ID, header + "(стикер)")
+        elif caption:
+            await context.bot.send_message(GROUP_ID, header + caption)
+        else:
+            await context.bot.send_message(GROUP_ID, header + "(сообщение без текста)")
+
+        await update.message.reply_text("✅ Сообщение отправлено в группу.")
     except Exception as e:
-        logging.error(f"Error processing update: {e}")
-    return "ok"
+        await update.message.reply_text(f"⚠️ Ошибка при пересылке: {e}")
 
-@app.route('/', methods=['GET'])
-def index():
-    return "Bot is running!", 200
 
-# --- Запуск ---
-if __name__ == '__main__':
-    webhook_url = f"https://{os.getenv('RENDER_EXTERNAL_HOSTNAME')}/{TOKEN}"
-    logging.info(f"Setting webhook to {webhook_url}")
-    asyncio.run(application.bot.set_webhook(webhook_url))
-    app.run(host='0.0.0.0', port=10000)
+# === Разные команды для админа и пользователей ===
+async def set_bot_commands(application):
+    # Команды для обычных пользователей
+    user_commands = [
+        BotCommand("balu", "Отправить одно число (2–3 цифры)")
+    ]
+
+    # Команды для админа
+    admin_commands = [
+        BotCommand("balu", "Отправить одно число (2–3 цифры)"),
+        BotCommand("contacts", "Показать список контактов"),
+        BotCommand("check", "Показать отчет по числам")
+    ]
+
+    # Устанавливаем пользователям
+    await application.bot.set_my_commands(user_commands, scope=BotCommandScopeAllPrivateChats())
+
+    # А админу — его команды
+    await application.bot.set_my_commands(admin_commands, scope=BotCommandScopeChat(chat_id=ADMIN_ID))
+
+
+# === Запуск приложения ===
+app = ApplicationBuilder().token(TOKEN).build()
+app.post_init = set_bot_commands
+
+# Хендлеры
+app.add_handler(CommandHandler("balu", balu_command))
+app.add_handler(CommandHandler("check", check_report))
+app.add_handler(MessageHandler(filters.TEXT & filters.User(ADMIN_ID), forward_to_contacts))
+app.add_handler(MessageHandler(~filters.User(ADMIN_ID), forward_user_message))
+
+if __name__ == "__main__":
+    app.run_polling()
