@@ -1,21 +1,33 @@
 import os
+from datetime import datetime, time
 from telegram import Update, BotCommand, BotCommandScopeAllPrivateChats, BotCommandScopeChat
 from telegram.ext import ApplicationBuilder, MessageHandler, filters, ContextTypes, CommandHandler
 
+# ===== Настройки =====
 TOKEN = os.getenv('BOTTOKEN')
 if not TOKEN:
     raise ValueError("BOTTOKEN environment variable is not set.")
 
 ADMIN_ID = 488787017
 CONTACTS = {
-    'ketr': 7415558897,
-    'daruna': 7179688966,
+    'Luda': 1497126590,
+    'Mama': 5110918542,
+    'Slava': 394747876,
+    'Anna': 405409720,
+    'KetD': 616933881,
+    'KetR': 1858219863,
+    'Andre': 5110918542,
+    'Vera': 5110918542,
+    'Anton': 5110918542,
+    'Jeca': 5110918542,
 }
 GROUP_ID = -1003172613297
+
+# user_reports теперь хранит словари: {"nums": число, "time": datetime}
 user_reports = {user_id: None for user_id in CONTACTS.values()}
 
 
-# === Только для админа ===
+# === Функция пересылки сообщений админом контактам ===
 async def forward_to_contacts(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id != ADMIN_ID:
         await update.message.reply_text("⛔ Эта команда только для администратора.")
@@ -47,7 +59,7 @@ async def forward_to_contacts(update: Update, context: ContextTypes.DEFAULT_TYPE
             await context.bot.send_message(contact_id, text)
 
 
-# === Команда /balu для всех пользователей ===
+# === Команда /balu для пользователей ===
 async def balu_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
 
@@ -62,7 +74,8 @@ async def balu_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     number = int(value)
-    user_reports[user_id] = number
+    # Сохраняем число и время отправки
+    user_reports[user_id] = {"nums": number, "time": datetime.now()}
 
     await update.message.reply_text(f"✅ Принято число: {number}")
 
@@ -70,36 +83,29 @@ async def balu_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await context.bot.send_message(GROUP_ID, report_msg)
 
 
-from datetime import datetime, time
-
 # === Проверка отчетов (только для админа) ===
 async def check_report(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id != ADMIN_ID:
         await update.message.reply_text("⛔ Эта команда только для администратора.")
         return
 
-    now = datetime.now().time()
-    start_time = time(9, 15)   # 09:15 утра
-    end_time = time(3, 0)      # 03:00 ночи
+    start_time = time(9, 15)
+    end_time = time(3, 0)  # 03:00 следующего дня
 
     def is_in_time_window(report_time):
-        """Проверка: report_time учитываем только в заданное время"""
-        if start_time <= report_time or report_time <= end_time:
-            return True
-        return False
+        return start_time <= report_time or report_time <= end_time
 
-    # Фильтруем отчёты по времени
     missing = []
     received = []
 
     for name, uid in CONTACTS.items():
         report = user_reports.get(uid)
-        if report is not None:
-            report_time = report['time']  # предполагаем, что в user_reports хранится {'nums': [...], 'time': datetime}
+        if report is not None and isinstance(report, dict) and 'time' in report:
+            report_time = report['time']
             if is_in_time_window(report_time.time()):
                 received.append((name, report['nums']))
             else:
-                missing.append(name)  # если прислано вне времени — считаем как не получено
+                missing.append(name)
         else:
             missing.append(name)
 
@@ -115,7 +121,6 @@ async def check_report(update: Update, context: ContextTypes.DEFAULT_TYPE):
         msg += "\n\nВсе прислали числа."
 
     await update.message.reply_text(msg)
-
 
 
 # === Любое сообщение от пользователя → в группу ===
@@ -151,24 +156,16 @@ async def forward_user_message(update: Update, context: ContextTypes.DEFAULT_TYP
         await update.message.reply_text(f"⚠️ Ошибка при пересылке: {e}")
 
 
-# === Разные команды для админа и пользователей ===
+# === Установка команд бота ===
 async def set_bot_commands(application):
-    # Команды для обычных пользователей
-    user_commands = [
-        BotCommand("balu", "Отправить одно число (2–3 цифры)")
-    ]
-
-    # Команды для админа
+    user_commands = [BotCommand("balu", "Отправить одно число (2–3 цифры)")]
     admin_commands = [
         BotCommand("balu", "Отправить одно число (2–3 цифры)"),
         BotCommand("contacts", "Показать список контактов"),
         BotCommand("check", "Показать отчет по числам")
     ]
 
-    # Устанавливаем пользователям
     await application.bot.set_my_commands(user_commands, scope=BotCommandScopeAllPrivateChats())
-
-    # А админу — его команды
     await application.bot.set_my_commands(admin_commands, scope=BotCommandScopeChat(chat_id=ADMIN_ID))
 
 
@@ -183,4 +180,5 @@ app.add_handler(MessageHandler(filters.TEXT & filters.User(ADMIN_ID), forward_to
 app.add_handler(MessageHandler(~filters.User(ADMIN_ID), forward_user_message))
 
 if __name__ == "__main__":
+    print("Bot is running...")
     app.run_polling()
