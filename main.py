@@ -23,21 +23,21 @@ CONTACTS = {
 }
 GROUP_ID = -1003172613297
 
-# user_reports теперь хранит словари: {"nums": число, "time": datetime}
+# user_reports тепер зберіга словники: {"nums": число, "time": datetime}
 user_reports = {user_id: None for user_id in CONTACTS.values()}
 
 
-# === Функция пересылки сообщений админом контактам ===
+# === Функція пересилання повідомлень адміном контактамам ===
 async def forward_to_contacts(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id != ADMIN_ID:
-        await update.message.reply_text("⛔ Эта команда только для администратора.")
+        await update.message.reply_text("⛔ Ця команда тільки для адміна.")
         return
 
     text = update.message.text.strip()
 
     if text == '/contacts':
         contacts_list = "\n".join([f"/{name}" for name in CONTACTS.keys()])
-        await update.message.reply_text(f"Список контактов:\n{contacts_list}")
+        await update.message.reply_text(f"Список контактів:\n{contacts_list}")
         return
 
     if text == '/check':
@@ -51,42 +51,42 @@ async def forward_to_contacts(update: Update, context: ContextTypes.DEFAULT_TYPE
             if msg:
                 await context.bot.send_message(contact_id, msg[0])
             else:
-                await update.message.reply_text(f"Введите сообщение после команды /{cmd}")
+                await update.message.reply_text(f"Введіть повідомлення після команди /{cmd}")
         else:
-            await update.message.reply_text("Неизвестный контакт.")
+            await update.message.reply_text("Невідомий контакт.")
     else:
         for contact_id in CONTACTS.values():
             await context.bot.send_message(contact_id, text)
 
 
-# === Команда /balu для пользователей ===
+# === Команда /balu для користувачів ===
 async def balu_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
 
     if len(context.args) != 1:
-        await update.message.reply_text("Пожалуйста, отправьте одно число из 2 или 3 цифр, например: /balu 45 или /balu 123")
+        await update.message.reply_text("Будьласка, відправте одне число з 2 чи 3 цифр, наприклад: /balu 45 чи /balu 123")
         return
 
     value = context.args[0]
 
     if not value.isdigit() or not (2 <= len(value) <= 3):
-        await update.message.reply_text("❌ Неверный формат. Введите одно число из 2 или 3 цифр, например: /balu 45 или /balu 123")
+        await update.message.reply_text("❌ Невірний формат. відправте одне число з 2 чи 3 цифр, наприклад: /balu 45 чи /balu 123")
         return
 
     number = int(value)
-    # Сохраняем число и время отправки
+    # Зберігаем число і час відправки
     user_reports[user_id] = {"nums": number, "time": datetime.now()}
 
-    await update.message.reply_text(f"✅ Принято число: {number}")
+    await update.message.reply_text(f"✅ Прийнято число: {number}")
 
-    report_msg = f"От @{update.effective_user.username or update.effective_user.full_name} получено число: {number}"
+    report_msg = f"Від @{update.effective_user.username or update.effective_user.full_name} отримано число: {number}"
     await context.bot.send_message(GROUP_ID, report_msg)
 
 
-# === Проверка отчетов (только для админа) ===
+# === Перевірка звіту (тільки для адміна) ===
 async def check_report(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id != ADMIN_ID:
-        await update.message.reply_text("⛔ Эта команда только для администратора.")
+        await update.message.reply_text("⛔ Ця команда тільки для адміна.")
         return
 
     start_time = time(9, 15)
@@ -109,28 +109,28 @@ async def check_report(update: Update, context: ContextTypes.DEFAULT_TYPE):
         else:
             missing.append(name)
 
-    msg = "Отчет по присланным числам:\n"
+    msg = "Звіт по отриманих числах:\n"
     if received:
-        msg += "\nПолучено от:\n" + "\n".join([f"{name}: {nums}" for name, nums in received])
+        msg += "\nОтримано від:\n" + "\n".join([f"{name}: {nums}" for name, nums in received])
     else:
-        msg += "\nДанных о полученных числах нет."
+        msg += "\nДанних о отриманих числах нема."
 
     if missing:
-        msg += "\n\nНе получили от:\n" + "\n".join(missing)
+        msg += "\n\nНе отримали від:\n" + "\n".join(missing)
     else:
-        msg += "\n\nВсе прислали числа."
+        msg += "\n\nВсі прислали числа."
 
     await update.message.reply_text(msg)
 
 
-# === Любое сообщение от пользователя → в группу ===
+# === Любе повідомлення від користувача → в группу ===
 async def forward_user_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     if user.id == ADMIN_ID:
         return
 
     caption = update.message.caption or update.message.text or ""
-    header = f"💬 Сообщение от @{user.username or user.full_name}:\n"
+    header = f"💬 Повідомлення від @{user.username or user.full_name}:\n"
 
     try:
         if update.message.photo:
@@ -149,20 +149,20 @@ async def forward_user_message(update: Update, context: ContextTypes.DEFAULT_TYP
         elif caption:
             await context.bot.send_message(GROUP_ID, header + caption)
         else:
-            await context.bot.send_message(GROUP_ID, header + "(сообщение без текста)")
+            await context.bot.send_message(GROUP_ID, header + "(Повідомлення без тексту)")
 
-        await update.message.reply_text("✅ Сообщение отправлено в группу.")
+        await update.message.reply_text("✅ Повідомлення відправлено в группу.")
     except Exception as e:
-        await update.message.reply_text(f"⚠️ Ошибка при пересылке: {e}")
+        await update.message.reply_text(f"⚠️ Помилка при пересиланні: {e}")
 
 
 # === Установка команд бота ===
 async def set_bot_commands(application):
-    user_commands = [BotCommand("balu", "Отправить одно число (2–3 цифры)")]
+    user_commands = [BotCommand("balu", "Відправте одне число (2–3 цифри)")]
     admin_commands = [
-        BotCommand("balu", "Отправить одно число (2–3 цифры)"),
-        BotCommand("contacts", "Показать список контактов"),
-        BotCommand("check", "Показать отчет по числам")
+        BotCommand("balu", "Відправте одне число (2–3 цифри)"),
+        BotCommand("contacts", "Показати список контактів"),
+        BotCommand("check", "Показати звіт по числам")
     ]
 
     await application.bot.set_my_commands(user_commands, scope=BotCommandScopeAllPrivateChats())
